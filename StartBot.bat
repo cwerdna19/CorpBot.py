@@ -12,7 +12,7 @@ set "ld=Lavalink"
 set "lava=Lavalink.jar"
 set /a wait=5
 
-if EXIST "%thisDir%\%ld%\%lava%" (
+if EXIST "%thisDir%%ld%\%lava%" (
     echo Starting Lavalink server...
     pushd "%thisDir%\%ld%"
     start "" java -jar "%lava%"
