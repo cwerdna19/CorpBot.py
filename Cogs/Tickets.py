@@ -1,6 +1,7 @@
-import asyncio, discord, random
+""" Template copied from Examples cog. Heavily 'borrowed' from Hw cog."""
+import asyncio, discord, random, time
 from   discord.ext import commands
-from   Cogs import Utils, Settings, DisplayName, UserTime, PickList
+from   Cogs import Utils, Settings, DisplayName, UserTime, PickList, Nullify
 
 def setup(bot):
     # Add the bot and deps
@@ -12,125 +13,74 @@ class Tickets(commands.Cog):
     def __init__(self, bot, settings):
         self.bot = bot
         self.settings = settings
-        self.ticketactive = {}
         global Utils, DisplayName
         Utils = self.bot.get_cog("Utils")
         DisplayName = self.bot.get_cog("DisplayName")
-        self.tickets = {}
+        self.queues = {}
         
-    def useTickets(self, server):
-        
-        return
-
+    #test
     @commands.command()
-    async def allowtickets(self, ctx, *, allow: str = None):
-        if not await Utils.is_admin_reply(ctx): return
-        
-        if allow == None:
-            msg = 'Please use **yes** or **no** to allow tickets on your server.'
-        elif lower(allow) == 'yes':
-            self.settings.setServerStat(ctx.guild, "UseTickets", True)
-            msg = f'Tickets are now enabled. Use {ctx.prefix}newticket to get started.'
-        elif lower(allow) == 'no':
-            self.settings.setServerStat(ctx.guild, "UseTickets", False)
-            msg = 'Tickets are now disabled.'
-            
-        await ctx.send(msg)
-        
-    @commands.command(pass_context=True)
-    async def setticketchannel(self, ctx, *, channel: discord.TextChannel = None):
-        """Sets the channel for Tickets (admin only)."""
+    async def guess(self, ctx):
+        await ctx.channel.send('Guess a number between 1 and 10.')
 
-        if not await Utils.is_admin_reply(ctx): return
+        def is_correct(m):
+            return m.author == ctx.message.author and m.content.isdigit()
 
-        if channel == None:
-            self.settings.setServerStat(ctx.guild, "TicketsChannel", "")
-            msg = 'Tickets work *only* in pm now.'
-            return await ctx.send(msg)
+        answer = random.randint(1, 10)
 
-        # If we made it this far - then we can add it
-        self.settings.setServerStat(ctx.guild, "TicketsChannel", channel.id)
+        try:
+            guess = await self.bot.wait_for('message', check=is_correct)
+        except asyncio.TimeoutError:
+            return await ctx.channel.send('Sorry, you took too long it was {}.'.format(answer))
 
-        msg = 'Tickets channel set to **{}**.'.format(channel.name)
-        await ctx.send(Utils.suppressed(ctx,msg))
-        
+        if int(guess.content) == answer:
+            await ctx.channel.send('You are right!')
+        else:
+            await ctx.channel.send('Oops. It is actually {}.'.format(answer))
+
+    # Create a new ticket and add it to the queue
     @commands.command()
     async def newticket(self, ctx):
-        """Initiate a new-ticket conversation with the bot. The ticket will be added to the bottom of the queue"""
         
-        enabled = self.settings.getServerStat(ctx.guild, "UseTicketing")
-        
-        # If Tickets aren't enabled,
-        
-        if not enabled:
-            msg = 'Tickets aren\'t enabled for this server. Admins can enable tickets with {}allowtickets [yes/no]'.format(ctx.prefix)
-            return await ctx.send(msg)
-        
-        queue = self.settings.getServerStat(ctx.guild, "")
-        
-        server = ctx.message.guild.id
-        
-        ticketChannel = None
-        if ctx.guild:
-            # Not a pm
-            ticketChannel = self.settings.getServerStat(ctx.guild, "TicketsChannel")
-            if not (not ticketChannel or ticketChannel = ""):
-                # Need channel ID
-                if not str(ticketChannel) == str(ctx.channel.id):
-                    msg = 'This isn\'t the channel for that...'
-                    for chan in ctx.guild.channels:
-                        if str(chan.id) == str(ticketChannel):
-                            msg = 'This isn\'t the channel for that. Please use the **{}** channel for tickets.'.format(chan.name)
-                        return await ctx.send(msg)
-                else:
-                    ticketChannel = self.bot.get_channel(ticketChannel)
-        if not ticketChannel:
-            # No channel set - use PM
-            ticketChannel = ctx.author
-            
-        # Ensure not in ticket session already
-        if str(ctx.author.id) in self.ticketactive:
-            return await ctx.send("You're already in a ticket session! You can leave with `{}cancelhw`".format(ctx.prefix))
-            
-        # Set TicketActive flag
-        ticket_id = self.gen_id()
-        self.ticketactive[str(ctx.author.id)] = ticket_id
-        
-        msg = 'Alright, *{}*, let\'s make a new ticket.\n\n'.format(DisplayName.name(ctx.author))
-        try:
-            await ticketChannel.send(msg)
-        except:
-            # Can't send message
-            self._stop_ticket(ctx.author)
-            if ticketChannel == ctx.author:
-                # Must not allow PMs
-                await ctx.send("It looks like you don't accept PMs. Please enable them and try again.")
-            return
-        
-        if ticketChannel = ctx.author and ctx.channel != ctx.author.dm_channel:
-            await ctx.message.add_reaction("📬")
-        msg = '*{}*, What should the subject of the ticket be? Be concise but descriptive. For example, "Error code 0xc0000001 on boot" is better than "My PC won\'t start". (type stop to cancel):'.format(DisplayName.name(ctx.author)
-        
-        # Get the ticket name
-        newTicket = {}
-        
-        while True:
-            ticketName = await self.prompt(ticket_id, ctx, msg, ticketChannel, DisplayName.name(ctx.author))
-            
-        
-        for x in qs:
-            if x['serverID'] == server:
-                return
-                
-        await ctx.send(self.queues['serverID']['ticketNum'])
-        
-    #def gen_id()
+        #ensure respondant is the author of the command message
+        def is_author(m):
+            return m.author == ctx.message.author
     
-    #def prompt()
+        msg = 'Need some help, *{}*? Let\'s make a new ticket...\n\n'.format(DisplayName.name(ctx.author))
+        msg += 'Firstly, what do you need help with? This will be the title of your ticket, so please be concise.\n\n'
+        await ctx.channel.send(msg)
+        
+        async def check():
+            try:
+                c = await self.bot.wait_for('message', check=is_author, timeout=300)
+                return c
+            except asyncio.TimeoutError:
+                return await ctx.channel.send('I waited too long, sorry! Ask me again later if you still need help.')
+        chk = await check()
+        while chk
+        if len(chk.content) <= 25:
+            msg = 'So you need help with {}? (yes/no/stop)'.format(title.content)
+            await ctx.channel.send(msg)
+            chk1 = await check()
+            
+            if chk1.content.lower() == 'yes':
+                #continue making ticket
+            elif chk1.content.lower() == 'no':
+                #ask for the title again
+            elif chk1.content.lower() == 'stop':
+                #stop here
+                break
+        else:
+            msg = 'Sorry, that title is too long.'
+            await ctx.channel.send(msg)
+            
     
     # def _stop_ticket()
     
     #def ticket_timeout()
+    
+    
+
 
 """        
     @commands.command()
