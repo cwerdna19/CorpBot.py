@@ -55,21 +55,23 @@ class Tickets(commands.Cog):
                 c = await self.bot.wait_for('message', check=is_author, timeout=300)
                 return c
             except asyncio.TimeoutError:
-                return await ctx.channel.send('I waited too long, sorry! Ask me again later if you still need help.')
+                return await ctx.channel.send('I was waiting too long, sorry! Ask me again later if you still need help.')
         chk = await check()
-        while chk
+
         if len(chk.content) <= 25:
-            msg = 'So you need help with {}? (yes/no/stop)'.format(title.content)
+            msg = 'So you need help with {}? (yes/no/stop)'.format(chk.content)
             await ctx.channel.send(msg)
             chk1 = await check()
-            
+            #this is not functioning
             if chk1.content.lower() == 'yes':
                 #continue making ticket
+                return
             elif chk1.content.lower() == 'no':
                 #ask for the title again
+                return
             elif chk1.content.lower() == 'stop':
                 #stop here
-                break
+                return
         else:
             msg = 'Sorry, that title is too long.'
             await ctx.channel.send(msg)
