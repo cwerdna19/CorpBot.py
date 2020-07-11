@@ -45,37 +45,45 @@ class Tickets(commands.Cog):
         #ensure respondant is the author of the command message
         def is_author(m):
             return m.author == ctx.message.author
-    
-        msg = 'Need some help, *{}*? Let\'s make a new ticket...\n\n'.format(DisplayName.name(ctx.author))
-        msg += 'Firstly, what do you need help with? This will be the title of your ticket, so please be concise.\n\n'
-        await ctx.channel.send(msg)
         
-        async def check():
-            try:
-                c = await self.bot.wait_for('message', check=is_author, timeout=300)
-                return c
-            except asyncio.TimeoutError:
-                return await ctx.channel.send('I was waiting too long, sorry! Ask me again later if you still need help.')
-        chk = await check()
-
-        if len(chk.content) <= 25:
-            msg = 'So you need help with {}? (yes/no/stop)'.format(chk.content)
-            await ctx.channel.send(msg)
-            chk1 = await check()
-            #this is not functioning
-            if chk1.content.lower() == 'yes':
-                #continue making ticket
-                return
-            elif chk1.content.lower() == 'no':
-                #ask for the title again
-                return
-            elif chk1.content.lower() == 'stop':
-                #stop here
-                return
-        else:
-            msg = 'Sorry, that title is too long.'
+        async def get_ticket():
+            msg = f'Need some help, *{DisplayName.name(ctx.author)}*? Let\'s make a new ticket...\n\n'
+            msg += 'Firstly, what do you need help with? This will be the title of your ticket, so please be concise.\n\n'
             await ctx.channel.send(msg)
             
+            async def check_response():
+                return await self.bot.wait_for('message', check=is_author, timeout=30)
+
+            response = await check_response()
+
+            if len(response.content) <= 25:
+                msg = f'So you need help with {response.content}? (yes/no/stop)'
+                await ctx.channel.send(msg)
+                
+                response = await check_response()
+                if response.content.lower() == 'yes':
+                    #continue making ticket
+                    await ctx.channel.send('They said yes')
+                    return
+                elif response.content.lower() == 'no':
+                    #ask for the title again
+                    await ctx.channel.send('They said no')
+                    return
+                elif response.content.lower() == 'stop':
+                    #stop here
+                    await ctx.channel.send('They said stop')
+                    return
+                else:
+                    await ctx.channel.send('They said nothing that matters')
+                    return
+            else:
+                msg = 'Sorry, that title is too long.'
+                await ctx.channel.send(msg)
+        
+        try:
+           await get_ticket()
+        except asyncio.TimeoutError:
+            return await ctx.channel.send('I was waiting too long, sorry! Ask me again later if you still need help.')
     
     # def _stop_ticket()
     
