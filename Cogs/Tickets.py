@@ -1,6 +1,6 @@
-import asyncio, discord, random, time
+import asyncio, discord
 from   discord.ext import commands
-from   Cogs import Utils, Settings, DisplayName, UserTime, PickList, Nullify
+from   Cogs import Settings, DisplayName
 
 def setup(bot):
     # Add the bot and deps
@@ -12,30 +12,9 @@ class Tickets(commands.Cog):
     def __init__(self, bot, settings):
         self.bot = bot
         self.settings = settings
-        global Utils, DisplayName
-        Utils = self.bot.get_cog("Utils")
+        global DisplayName
         DisplayName = self.bot.get_cog("DisplayName")
         self.queues = {}
-        
-    @commands.command()
-    async def guess(self, ctx):
-        """Example command from discord.py docs"""
-        await ctx.channel.send('Guess a number between 1 and 10.')
-
-        def is_correct(m):
-            return m.author == ctx.message.author and m.content.isdigit()
-
-        answer = random.randint(1, 10)
-
-        try:
-            guess = await self.bot.wait_for('message', check=is_correct)
-        except asyncio.TimeoutError:
-            return await ctx.channel.send('Sorry, you took too long it was {}.'.format(answer))
-
-        if int(guess.content) == answer:
-            await ctx.channel.send('You are right!')
-        else:
-            await ctx.channel.send('Oops. It is actually {}.'.format(answer))
 
     # Create a new ticket and add it to the queue
     @commands.command()
@@ -59,74 +38,88 @@ class Tickets(commands.Cog):
         def is_author(m):
             return m.author == ctx.message.author
         
-        async def get_ticket_info():               
-            async def check_response():
-                return await self.bot.wait_for('message', check=is_author, timeout=30)
+        async def check_response():
+            return await self.bot.wait_for('message', check=is_author, timeout=30)
+        
+        #felt cute might delete
+        """
+        async def yes_no_stop(m):
+            if m.content.lower() == 'yes':
+                return m.content
+            elif m.content.lower() == 'no':
+                # some func?
+            elif m.content.lower() == 'stop':
+                return await ctx.channel.send(f'No problem, {DisplayName.name(ctx.m.author)}! See you later!')
+            else:
+                return await ctx.channel.send('I don\'t know what to say to that. Try making your ticket again.')
+        """
             
-            """
-            async def yes_no_stop(m):
-                if m.content.lower() == 'yes':
-                    return m.content
-                elif m.content.lower() == 'no':
-                    # some func?
-                elif m.content.lower() == 'stop':
-                    return await ctx.channel.send(f'No problem, {DisplayName.name(ctx.m.author)}! See you later!')
-                else:
-                    return await ctx.channel.send('I don\'t know what to say to that. Try making your ticket again.')
-            """
+        async def get_ticket_body():
+            msg = 'OK! Tell me about your problem in 500 words or less.'
+            await ctx.channel.send(msg)
+            body = await check_response()
             
-            async def get_ticket_body():
-                msg = 'OK! Tell me about your problem in 500 words or less.'
-                await ctx.channel.send(msg)
-                body = await check_response()
-                
-                msg = 'Here\'s what I got:\n'
-                msg += f'```\n{body.content}```'
-                msg += 'Is this correct? (yes/no/stop)'
-                await ctx.channel.send(msg)
-                
-                response = await check_response()
-                
-                #return await yes_no_stop(response)
-                
+            msg = 'Here\'s what I got:\n'
+            msg += f'```\n{body.content}```'
+            msg += 'Is this correct? (yes/no/stop)'
+            await ctx.channel.send(msg)
+            
+            response = await check_response()
+            
+            #return await yes_no_stop(response)
+            if len(body.content) <= 500:
                 if response.content.lower() == 'yes':
                     return body.content
                 elif response.content.lower() == 'no':
                     await get_ticket_body()
                 elif response.content.lower() == 'stop':
-                    return await ctx.channel.send(f'No problem, {DisplayName.name(ctx.author)}! See you later!')
+                    await ctx.channel.send(f'No problem, {DisplayName.name(ctx.author)}! See you later!')
+                    return None
                 else:
-                    return await ctx.channel.send('I don\'t know what to say to that. Try making your ticket again.')
-                
-            async def get_ticket_title():
-                msg = 'What do you need help with? This will be the title of your ticket, so please be concise (25 characters maximum).'
+                    await ctx.channel.send('I don\'t know what to say to that. Try making your ticket again.')
+                    return None
+            else:
+                msg = 'Sorry, that message is too long.'
                 await ctx.channel.send(msg)
-                title = await check_response()
-                if len(title.content) <= 25:
-                    msg = f'So you need help with `{title.content}`? (yes/no/stop)'
-                    await ctx.channel.send(msg)
-                    response = await check_response()
-                    
-                    if response.content.lower() == 'yes':
-                        return title.content
-                    elif response.content.lower() == 'no':
-                        await get_ticket_title()
-                    elif response.content.lower() == 'stop':
-                        return await ctx.channel.send(f'No problem, {DisplayName.name(ctx.author)}! See you later!')
-                    else:
-                        return await ctx.channel.send('I don\'t know what to say to that. Try making your ticket again.')
-
-                else:
-                    msg = 'Sorry, that title is too long.'
-                    await ctx.channel.send(msg)
+                await get_body_title()
+        
+        async def get_ticket_title():
+            msg = 'What do you need help with? This will be the title of your ticket, so please be concise (25 characters maximum).'
+            await ctx.channel.send(msg)
+            title = await check_response()
+            if len(title.content) <= 25:
+                msg = f'So you need help with `{title.content}`? (yes/no/stop)'
+                await ctx.channel.send(msg)
+                response = await check_response()
+                
+                if response.content.lower() == 'yes':
+                    return title.content
+                elif response.content.lower() == 'no':
                     await get_ticket_title()
-            
+                elif response.content.lower() == 'stop':
+                    await ctx.channel.send(f'No problem, {DisplayName.name(ctx.author)}! See you later!')
+                    return None
+                else:
+                    await ctx.channel.send('I don\'t know what to say to that. Try making your ticket again.')
+                    return None
+            else:
+                msg = 'Sorry, that title is too long.'
+                await ctx.channel.send(msg)
+                await get_ticket_title()
+        
+        async def get_ticket_info():               
             msg = f'Need some help, *{DisplayName.name(ctx.author)}*? Let\'s make a new ticket...\n'
             
             await ctx.channel.send(msg)
             
             title = await get_ticket_title()
+            if title == None:
+                return
+                
             body = await get_ticket_body()
+            if body == None:
+                return
+                
             ticket = {'title': title, 'body': body}
             await ctx.channel.send(ticket)
         
