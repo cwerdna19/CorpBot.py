@@ -1,6 +1,7 @@
-import asyncio, discord
-from   discord.ext import commands
-from   Cogs import Settings, DisplayName
+import asyncio, discord, datetime
+from    datetime import timedelta
+from    discord.ext import commands
+from    Cogs import Settings, DisplayName
 
 def setup(bot):
     # Add the bot and deps
@@ -14,88 +15,51 @@ class Tickets(commands.Cog):
         self.settings = settings
         global DisplayName
         DisplayName = self.bot.get_cog("DisplayName")
-        self.queues = {}
+        self.all_tickets = {}
+    
+    class Ticket:
+        """Constructor for a ticket. Ticket objets are made in the process_new_ticket() method"""
+        def __init__(self, title, body, owner, date):
+            expiry_days = timedelta(days=7)
+            self.title = title
+            self.body = body
+            self.owner_id = owner.id
+            self.owner_name = owner
+            self.claimed_by = None
+            self.date_made = date
+            self.expires_on = date + expiry_days
+            
 
     # Create a new ticket and add it to the queue
     @commands.command()
     async def newticket(self, ctx):
-        """
-        TO DO:
-        Add ctx.guild.id to self.queues if it does not exist.
-        self.queues format:
-        self.queues =
-            { Servers:  {   1234: 
-                                {   'Ticket1': { 'Title': 'My computer caught fire?', 'Body': 'I was cooking steak on my Intel CPU and the main board ignited. What should I do?', 'Owner': 'user.id', 'ClaimedBy': 'user.id' } },
-                                {   'Ticket2': {} }
-                        },
-                        {   5678:
-                                {{}}
-                        }
-            }
-        """
+        def add_to_queue(ticket):
+            """Make a list if one doesn't exist for a server
+               Append the ticket to the list."""
+            if self.all_tickets.get(ctx.guild.id) == None:
+                self.all_tickets[ctx.guild.id] = [ticket]
+            else:
+                self.all_tickets[ctx.guild.id].append(ticket)
         
-        #ensure respondant is the author of the command
         def is_author(m):
+            """Return true if the user entered the command"""
             return m.author == ctx.message.author
         
         async def check_response():
             return await self.bot.wait_for('message', check=is_author, timeout=30)
         
-        #felt cute might delete
-        """
-        async def yes_no_stop(m):
-            if m.content.lower() == 'yes':
-                return m.content
-            elif m.content.lower() == 'no':
-                # some func?
-            elif m.content.lower() == 'stop':
-                return await ctx.channel.send(f'No problem, {DisplayName.name(ctx.m.author)}! See you later!')
-            else:
-                return await ctx.channel.send('I don\'t know what to say to that. Try making your ticket again.')
-        """
-            
-        async def get_ticket_body():
-            msg = 'OK! Tell me about your problem in 500 words or less.'
-            await ctx.channel.send(msg)
-            body = await check_response()
-            
-            msg = 'Here\'s what I got:\n'
-            msg += f'```\n{body.content}```'
-            msg += 'Is this correct? (yes/no/stop)'
-            await ctx.channel.send(msg)
-            
-            response = await check_response()
-            
-            #return await yes_no_stop(response)
-            if len(body.content) <= 500:
-                if response.content.lower() == 'yes':
-                    return body.content
-                elif response.content.lower() == 'no':
-                    await get_ticket_body()
-                elif response.content.lower() == 'stop':
-                    await ctx.channel.send(f'No problem, {DisplayName.name(ctx.author)}! See you later!')
-                    return None
-                else:
-                    await ctx.channel.send('I don\'t know what to say to that. Try making your ticket again.')
-                    return None
-            else:
-                msg = 'Sorry, that message is too long.'
-                await ctx.channel.send(msg)
-                await get_body_title()
-        
-        async def get_ticket_title():
-            msg = 'What do you need help with? This will be the title of your ticket, so please be concise (25 characters maximum).'
-            await ctx.channel.send(msg)
-            title = await check_response()
-            if len(title.content) <= 25:
-                msg = f'So you need help with `{title.content}`? (yes/no/stop)'
+        async def get_ticket_item(intro, num):
+            await ctx.channel.send(intro)
+            item = await check_response()
+            if len(item.content) <= num:
+                msg = f'This is what I got: `{item.content}`\nIs this correct? (yes/no/stop)'
                 await ctx.channel.send(msg)
                 response = await check_response()
                 
                 if response.content.lower() == 'yes':
-                    return title.content
+                    return item.content
                 elif response.content.lower() == 'no':
-                    await get_ticket_title()
+                    await get_ticket_item(intro, num)
                 elif response.content.lower() == 'stop':
                     await ctx.channel.send(f'No problem, {DisplayName.name(ctx.author)}! See you later!')
                     return None
@@ -103,30 +67,49 @@ class Tickets(commands.Cog):
                     await ctx.channel.send('I don\'t know what to say to that. Try making your ticket again.')
                     return None
             else:
-                msg = 'Sorry, that title is too long.'
+                msg = f'Sorry, that message is too long. Try making it shorter than {num} characters.'
                 await ctx.channel.send(msg)
-                await get_ticket_title()
+                await get_ticket_item(intro, num)
         
-        async def get_ticket_info():               
+        async def process_new_ticket():
             msg = f'Need some help, *{DisplayName.name(ctx.author)}*? Let\'s make a new ticket...\n'
             
             await ctx.channel.send(msg)
             
-            title = await get_ticket_title()
+            msg = 'What do you need help with? This will be the title of your ticket, so please be concise (25 characters maximum).'
+            
+            title = await get_ticket_item(msg, 25)
             if title == None:
                 return
                 
-            body = await get_ticket_body()
+            msg = 'OK! Tell me about your problem in 500 words or less.'
+                
+            body = await get_ticket_item(msg, 500)
             if body == None:
                 return
                 
-            ticket = {'title': title, 'body': body}
-            await ctx.channel.send(ticket)
-        
+            ticket = self.Ticket(title, body, ctx.message.author, datetime.date.today())
+            msg = f'Your ticket was added to the queue. Someone will @ you if they claim your ticket.\nHere\'s what your ticket looks like:\n`Title:`\n{ticket.title}\n\n`Message:`\n{ticket.body}\n\n`Owner:`\n{ticket.owner_name}'
+            msg += f'\n\n`Date created:`\n{ticket.date_made}\n\n`Expires on:`\n{ticket.expires_on}\n\n`Claimed by:`\n{ticket.claimed_by}'
+            await ctx.channel.send(msg)
+            if 
+            add_to_queue(ticket)
+
         try:
-            await get_ticket_info()
+            await process_new_ticket()
         except asyncio.TimeoutError:
             return await ctx.channel.send('I was waiting too long, sorry! Ask me again later if you still need help.')
+    
+    @commands.command()
+    async def viewtickets(self, ctx):
+        server = ctx.guild.id
+        tickets = self.all_tickets[server]
+        msg = f'Here are all the unclaimed tickets:\n\n'
+        n = 0
+        for ticket in tickets:
+            n += 1
+            msg += f'{n}. {ticket.title}\nCreated: {ticket.date_made}\nExpires: {ticket.expires_on}\n\n'
+        await ctx.channel.send(msg)
     
     @commands.command()
     async def closeticket(self, ctx):
