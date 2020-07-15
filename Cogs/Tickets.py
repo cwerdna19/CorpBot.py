@@ -175,20 +175,23 @@ class Tickets(commands.Cog):
         
         if id == None:
             return await ctx.channel.send('Please specify a ticket ID.')
-        elif tickets == None:
+        elif tickets is None:
             return await ctx.channel.send('Sorry, I couldn\'t find any open tickets.')
         else:
             for ticket in tickets:
+            #this needs fixing, breaks after first comparison
                 if ticket.id == id:
                     this_ticket = ticket
                     break
                 else:
                     print('debug loop')
                     return await ctx.channel.send(f'Sorry, I can\'t find a ticket with ID {id}.')
+            #this is all broken, not sure why yet
             if user != None:
                 #make a function to decrement/increment ticket stat
                 #make a function to decrement/increment ticket credit stat
                 if realname != None:
+                    #Close ticket and give credit to user specified
                     server_open_tickets = self.settings.getServerStat(ctx.guild, "OpenTickets")
                     server_open_tickets -= 1
                     self.settings.setServerStat(ctx.guild, "OpenTickets", server_open_tickets)
@@ -198,17 +201,22 @@ class Tickets(commands.Cog):
                     self.settings.setUserStat(ctx.author, ctx.guild, "TicketsOpen", user_open_tickets)
                     
                     tickets.remove(this_ticket)
+                    
+                    #If user has no TicketCredit stat
                     if not self.settings.getUserStat(realname, ctx.guild, "TicketCredit"):
+                        #Make the stat
                         self.settings.setUserStat(realname, ctx.guild, "TicketCredit", 1)
                         print(self.settings.getUserStat(realname, ctx.guild, "TicketCredit"))
                         return await ctx.channel.send(f'Ticket **{this_ticket.id}** has been deleted. Credit for fixing the issue went to *{realname}*.')
                     else:
+                        #If user has TicketCredit stat increment it
                         self.settings.incrementStat(realname, ctx.guild, "TicketCredit", 1)
                         print(self.settings.getUserStat(realname, ctx.guild, "TicketCredit"))
                         return await ctx.channel.send(f'Ticket **{this_ticket.id}** has been deleted. Credit for fixing the issue went to *{realname}*.')
                 else:
                     return await ctx.channel.send(f'Sorry, I can\'t find a user named *{realname}*.')
             else:
+                #If no user specified, close ticket without giving credit
                 server_open_tickets = self.settings.getServerStat(ctx.guild, "OpenTickets")
                 server_open_tickets -= 1
                 self.settings.setServerStat(ctx.guild, "OpenTickets", server_open_tickets)
