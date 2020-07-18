@@ -1,15 +1,19 @@
-import asyncio, discord, datetime
+import  asyncio, discord, datetime
 from    datetime import timedelta
 from    discord.ext import commands
-from    Cogs import Settings, DisplayName
+from    Cogs import Settings, DisplayName, PickList
 """
 TO DO:
 
--Add ticket list to settings ServerStat????
 -Search ticket by user name, user id, claimed, unclaimed, date
+-Handle ticket expiration
+
+-Move title, body max length, max server tickets, max user tickets, to serverstat
+-Move ticket list to serverstat
+    - Did this, but ticket object can't be stored in json
 
 Need:
-List of users with tickets open
+List of users with tickets open?
     Must include number of tickets opened per user
     User Stat with number of tickets opened?
     User Stat with number of tickets fixed
@@ -33,6 +37,20 @@ class Tickets(commands.Cog):
         self.max_user_tickets = 10
         self.max_server_tickets = 1000
         self.ticket_list = {}
+    
+    def display_ticket(self, ctx, ticket):
+        ticket_embed = discord.Embed(color=ctx.author.color)
+        ticket_embed.title = f'{ticket.owner_name}\'s Ticket'
+        ticket_embed.add_field(name="Ticket Name", value=ticket.title)
+        ticket_embed.add_field(name="Ticket ID", value=ticket.id)
+        ticket_embed.add_field(name='\u200B', value='\u200B')
+        ticket_embed.add_field(name="Ticket Content", value=ticket.body, inline=True)
+        ticket_embed.add_field(name='\u200B', value='\u200B')
+        ticket_embed.add_field(name='\u200B', value='\u200B')
+        ticket_embed.add_field(name='Created on', value=ticket.date_made)
+        ticket_embed.add_field(name='Expires on', value=ticket.expires_on)
+        
+        return ticket_embed
 
     class Ticket:
         """Ticket object constructor. Ticket objets are made in the process_new_ticket() method"""
@@ -54,9 +72,12 @@ class Tickets(commands.Cog):
         def add_ticket(ticket):
             """Make a ticket list if one doesn't exist for a server
                 Append the ticket object to the list."""
-            if self.ticket_list.get(ctx.guild.id) is None:
-                self.ticket_list[ctx.guild.id] = []
-            self.ticket_list[ctx.guild.id].append(ticket)
+            server_ticket_list = self.settings.getServerStat(ctx.guild, "TicketList")
+            if server_ticket_list is None:
+                self.settings.setServerStat(ctx.guild, "TicketList", [])
+                server_ticket_list = self.settings.getServerStat(ctx.guild, "TicketList")
+            server_ticket_list.append(ticket)
+            self.settings.setServerStat(ctx.guild, "TicketList", server_ticket_list)
 
         def is_author(m):
             """Return true if the message author is the user entered the command"""
@@ -96,9 +117,27 @@ class Tickets(commands.Cog):
             """Call methods to get ticket info from user.
                 Create ticket object and add it to the list."""
             msg = f'Need some help, *{DisplayName.name(ctx.author)}*? Let\'s make a new ticket...\n'
-
             await ctx.channel.send(msg)
-
+            
+            #check max ticket stats first
+            server_open_tickets = self.settings.getServerStat(ctx.guild, "OpenTickets")
+            #If ServerStat OpenTickets doesn't exist, set value 0
+            if server_open_tickets is None:
+                self.settings.setServerStat(ctx.guild, "OpenTickets", 0)
+                server_open_tickets = self.settings.getServerStat(ctx.guild, "OpenTickets")
+            #If ServerStat OpenTickets exceeds max, return
+            if server_open_tickets >= self.max_server_tickets:
+                return await ctx.channel.send(f'Sorry! The server has reached its ticket cap. Please try again later.')
+            
+            user_tickets_open = self.settings.getUserStat(ctx.author, ctx.guild, "TicketsOpen")
+            #If UserStat TicketsOpen doesn't exist, set value 0
+            if user_tickets_open is None:
+                self.settings.setUserStat(ctx.author, ctx.guild, "TicketsOpen", 0)
+                user_tickets_open = self.settings.getUserStat(ctx.author, ctx.guild, "TicketsOpen")
+            #If UserStat TicketsOpen exceeds max, return
+            if user_tickets_open >= self.max_user_tickets:
+                return await ctx.channel.send(f'Sorry! You\'ve opened too many tickets at once. Try again when you have less than {self.max_user_tickets}.')
+        
             msg = 'What do you need help with? This will be the title of your ticket, '
             msg += f'so please be concise ({self.title_length} characters maximum).'
 
@@ -112,25 +151,9 @@ class Tickets(commands.Cog):
             if body is None:
                 return
             
-            user_tickets_open = self.settings.getUserStat(ctx.author, ctx.guild, "TicketsOpen")
-            #If UserStat TicketsOpen doesn't exist, set value 0
-            if user_tickets_open is None:
-                self.settings.setUserStat(ctx.author, ctx.guild, "TicketsOpen", 0)
-                user_tickets_open = self.settings.getUserStat(ctx.author, ctx.guild, "TicketsOpen")
-            #If UserStat TicketsOpen exceeds max, return
-            if user_tickets_open >= self.max_user_tickets:
-                return await ctx.channel.send(f'Sorry! You\'ve opened too many tickets at once. Try again when you have less than {self.max_user_tickets}.')
             #Increment TicketsOpen stat by one
             self.settings.incrementStat(ctx.author, ctx.guild, "TicketsOpen", 1)
             
-            server_open_tickets = self.settings.getServerStat(ctx.guild, "OpenTickets")
-            #If ServerStat OpenTickets doesn't exist, set value 0
-            if server_open_tickets is None:
-                self.settings.setServerStat(ctx.guild, "OpenTickets", 0)
-                server_open_tickets = self.settings.getServerStat(ctx.guild, "OpenTickets")
-            #If ServerStat OpenTickets exceeds max, return
-            if server_open_tickets >= self.max_server_tickets:
-                return await ctx.channel.send(f'Sorry! The server has reached its ticket cap. Please try again later.')
             #Increment OpenTickets stat by one
             self.settings.setServerStat(ctx.guild, "OpenTickets", server_open_tickets+1)
                 
@@ -147,12 +170,10 @@ class Tickets(commands.Cog):
             ticket = self.Ticket(title, body, ctx.message.author, datetime.date.today(), server_total_tickets)
             
             #Show ticket to user
-            msg = f'Your ticket was added to the queue. Someone will @ you if they claim your ticket.'
-            msg += f'\nHere\'s what your ticket looks like:\n`Title:`\n{ticket.title}\n`Message:`\n{ticket.body}'
-            msg += f'\n`Owner:`\n{ticket.owner_name}'
-            msg += f'\n`Date created:`\n{ticket.date_made}\n`Expires on:`\n{ticket.expires_on}\n`Claimed by:`'
-            msg += f'\n{ticket.claimed_by}\n`Ticket ID:`\n{ticket.id}'
-            await ctx.channel.send(msg)
+            msg = f'Your ticket was added to the queue. You will be notified if someone claims your ticket.\n'
+            #msg += self.display_ticket(ctx, ticket)
+            await ctx.channel.send(msg, embed=self.display_ticket(ctx, ticket))
+            
             
             #Add ticket to server's ticket list
             add_ticket(ticket)
@@ -161,19 +182,71 @@ class Tickets(commands.Cog):
             await process_new_ticket()
         except asyncio.TimeoutError:
             return await ctx.channel.send('I was waiting too long, sorry! Ask me again later if you still need help.')
-    """
+    
     @commands.command()
-    async def viewtickets(self, ctx, claimed="unclaimed"):
-    """"""View all unclaimed tickets
-        Pass "claimed" to view claimed tickets""""""
-        server = ctx.guild.id
-        tickets = self.settings.getServerStat
-        msg = f'Here are all the unclaimed tickets:\n\n'
-        n = 0
-        for ticket in tickets:
-            n += 1
-            msg += f'{n}. {ticket.title}\nCreated: {ticket.date_made}\nExpires: {ticket.expires_on}\n\n'
-        await ctx.channel.send(msg)"""
+    async def showtickets(self, ctx, id : int = None, claimed : str = None):
+    #Implement PagePicker from PickList.py for when tickets returned is >10
+    
+        tickets = self.settings.getServerStat(ctx.guild, "TicketList")
+        this_ticket = None
+        ticket_list = []
+        ticket_titles = []
+        
+        #If tickets in list
+        if tickets is None or len(tickets) == 0:
+            return await ctx.channel.send('Sorry, I couldn\'t find any open tickets.')
+        #If ticket.id was given
+        if id is not None:
+            if claimed is not None:
+                return await ctx.channel.send(f'Please don\'t specify an ID as well as a claimed state.')
+            for ticket in tickets:
+                if ticket.id == id:
+                    this_ticket = ticket
+            if this_ticket is None:
+                return await ctx.channel.send(f'Sorry, I couldn\'t find a ticket with ID {id}.')
+        #If no ticket.id was given
+        elif id is None:
+            #If claimed is specified
+            if claimed is not None:
+                #Look for claimed tickets
+                if claimed == 'yes':
+                    for ticket in tickets:
+                        if ticket.claimed_by is not None:
+                            ticket_titles.append(ticket.title)
+                            ticket_list.append(ticket)
+                    if ticket_titles == []:
+                        return await ctx.channel.send(f'Sorry, I couldn\'t find any claimed tickets.')
+                #Look for unclaimed tickets
+                elif claimed == 'no':
+                    for ticket in tickets:
+                        if ticket.claimed_by is None:
+                            ticket_titles.append(ticket.title)
+                            ticket_list.append(ticket)
+                    if ticket_titles == []:
+                        return await ctx.channel.send(f'Sorry, I couldn\'t find any unclaimed tickets.')
+            #If claimed isn't specified
+            elif claimed is None:
+                for ticket in tickets:
+                    ticket_titles.append(ticket.title)
+                    ticket_list.append(ticket)
+        
+        if this_ticket is None:        
+            index, message = await PickList.Picker(
+                title = 'Please select from the following list of tickets:',
+                list = ticket_titles,
+                ctx = ctx
+            ).pick()
+            
+            if index < 0:
+                await message.edit(content="Ticket search canceled.")
+                return
+        
+        ticket_embed = self.display_ticket(ctx, ticket_list[index])
+                
+        if message:
+            return await message.edit(content=" ", embed=ticket_embed)
+        else:
+            return await ctx.channel.send(embed=ticket_embed)
 
     @commands.command()
     async def closeticket(self, ctx, *, id : int = None, user : str = None):
@@ -181,7 +254,7 @@ class Tickets(commands.Cog):
         #must decrement stat "OpenTickets"
         #must remove ticket object from list
         #must give credit to user specified
-        tickets = self.ticket_list.get(ctx.guild.id)
+        tickets = self.settings.getServerStat(ctx.guild, "TicketList")
         this_ticket = None
         realname = DisplayName.memberForName(user, ctx.guild)
         
@@ -201,7 +274,7 @@ class Tickets(commands.Cog):
                         return await ctx.channel.send('You don\'t have permission to close this ticket.')
             #We have tickets but not with that ID
             if this_ticket is None:
-                return await ctx.channel.send(f'Sorry, I can\'t find a ticket with ID {id}.')
+                return await ctx.channel.send(f'Sorry, I couldn\'t find a ticket with ID {id}.')
             
             #Decrement ServerStat OpenTickets
             server_open_tickets = self.settings.getServerStat(ctx.guild, "OpenTickets")
@@ -233,13 +306,9 @@ class Tickets(commands.Cog):
             
             #Remove the ticket from the list
             tickets.remove(this_ticket)
+            self.settings.setServerStat(ctx.guild, "TicketList", tickets)
             
             return await ctx.channel.send(msg)
-        
-    @commands.command()
-    async def delticket(self, ctx):
-        #delete a ticket without giving credit (maybe implement as part of $closeticket)
-        return
 
     @commands.command()
     async def editticket(self, ctx):
@@ -255,3 +324,9 @@ class Tickets(commands.Cog):
     async def unclaimticket(self, ctx):
         #unclaim a ticket and add it back to the queue (maybe implement as part of $claimticket)
         return
+        
+    @commands.command()
+    async def reset_user(self, ctx):
+        #reset UserStat TicketsOpen
+        self.settings.setUserStat(ctx.author, ctx.guild, "TicketsOpen", 0)
+        return await ctx.channel.send(f'Reset user *{ctx.author}*\'s ticket count to 0.')
